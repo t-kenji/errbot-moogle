@@ -1,0 +1,6 @@
+[Core]
+Name = Letschat
+Module = letschat
+
+[Documentation]
+Description = This is the let's chat (https://github.com/sdelements/lets-chat) backend for Err.
