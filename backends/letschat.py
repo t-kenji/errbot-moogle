@@ -3,10 +3,7 @@
 import logging
 import re
 
-from errbot.backends.base import (
-        Message, ONLINE, Room,
-        RoomOccupant, Person, 
-)
+from errbot.backends.base import Message, ONLINE, Room, RoomOccupant, Person
 from errbot.core import ErrBot
 
 
@@ -27,39 +24,94 @@ except ImportError:
     sys.exit(1)
 
 
-class LetschatNamespace(BaseNamespace):
+class LetschatClient():
     """
     """
 
-    def __init__(self, io, path):
+    class LetschatNamespace(BaseNamespace):
         """
         """
 
-        super().__init__(io, path)
-        self._username = None
-        self._connected = False
-        self._room = None
+        def __init__(self, io, path):
+            """
+            """
 
-    def on_connect(self, *args):
-        log.info('on_connect: {}'.format(args))
-        self._io.emit('account:whoami', self.on_account_whoami_response)
+            super().__init__(io, path)
+            self._user = None
+            self._connected = False
+            self._room = None
 
-    def on_account_whoami_response(self, *args):
-        log.info('on_account_whoami_response: {}'.format(args))
-        self._username = args[0].get('username')
+        def on_connect(self, *args):
+            self._io.emit('account:whoami', self.on_account_whoami_response)
 
-        if not self._connected:
-            log.info('connected')
-            self._connected = True
+        def on_account_whoami_response(self, *args):
+            self._user = dict(args[0])
 
-    def on_rooms_join_response(self, *args):
-        log.info('on_rooms_join_response: {}'.format(args))
-        log.info('Joined {}'.format(args[0].get('name')))
-        self._room = args[0].get('name')
+            if not self._connected:
+                log.info('Connected')
+                self._connected = True
+
+        def on_rooms_join_response(self, *args):
+            log.info('Joined {}'.format(args[0].get('name')))
+            self._room = dict(args[0])
+
+        @property
+        def user(self):
+            return self._user
+
+        @property
+        def room(self):
+            return self._room
+
+        @property
+        def connected(self):
+            return self._connected
+
+    def __init__(self, hostname, port, token):
+        """
+        """
+
+        self._sio = SocketIO(hostname, port, LetschatClient.LetschatNamespace,
+                             params={'token': token})
+        self.on_users_join_handler = None
+        self.on_messages_new_handler = None
+
+    def wait(self, seconds=None):
+        self._sio.wait(seconds)
+
+    def emit_messages_create(self, message):
+        self._sio.emit('messages:create', message)
+
+    def emit_rooms_join(self, room):
+        self._sio.emit('rooms:join', room, self._sio.get_namespace().on_rooms_join_response)
+
+    @property
+    def on_users_join_handler(self):
+        return self._on_users_join_handler
+
+    @on_users_join_handler.setter
+    def on_users_join_handler(self, handler):
+        self._on_users_join_handler = handler
+        self._sio.on('users:join', self.on_users_join_handler)
+        return True
+
+    @property
+    def on_messages_new_handler(self):
+        return self._on_messages_new_handler
+
+    @on_messages_new_handler.setter
+    def on_messages_new_handler(self, handler):
+        self._on_messages_new_handler = handler
+        self._sio.on('messages:new', self._on_messages_new_handler)
+        return True
 
     @property
     def username(self):
-        return self._username
+        return self._sio.get_namespace().user.get('username')
+
+    @property
+    def connected(self):
+        return self._sio.get_namespace().connected
 
 class LetschatPerson(Person):
     """
@@ -68,8 +120,6 @@ class LetschatPerson(Person):
     def __init__(self, client, username, roomid=None):
         """
         """
-        log.info('LetschatPerson.__init__: {}'.format(username))
-
         self._client = client
         self._username = username
         self._roomid = roomid
@@ -153,14 +203,9 @@ class LetschatBackend(ErrBot):
             )
             sys.exit(1)
 
-        self.client = SocketIO(hostname, port, LetschatNamespace,
-                               params={'token': self.token})
-        self.client.on('users:join', self._on_users_join_message)
-        self.client.on('messages:new', self._on_messages_new_message)
-        self.client.wait(seconds=1)
-        username = self.client.get_namespace().username
-
-        self.bot_identifier = LetschatPerson(self.client, username)
+        self.client = LetschatClient(hostname, port, self.token)
+        self.client.on_users_join_handler =  self._on_users_join_message
+        self.client.on_messages_new_handler = self._on_messages_new_message
 
     def _on_users_join_message(self, *args):
         """
@@ -224,9 +269,7 @@ class LetschatBackend(ErrBot):
         log.info('LetschatBackend.build_reply')
 
         response = self.build_message(text)
-
         response.frm = self.bot_identifier
-
         response.to = mess.frm
 
         return response
@@ -266,7 +309,14 @@ class LetschatBackend(ErrBot):
         """
         """
         log.info('LetschatBackend.serve_forever in')
+        while not self.client.connected:
+            self.client.wait(seconds=1)
+        username = self.client.username
+
+        self.bot_identifier = LetschatPerson(self.client, username)
+
         self.connect_callback()
+
         try:
             self.client.wait()
         except EOFError:
@@ -292,7 +342,7 @@ class LetschatBackend(ErrBot):
                 'text': mess.body,
             }
 
-            self.client.emit('messages:create', message)
+            self.client.emit_messages_create(message)
         except Exception:
             log.exception(
                 'An exception occurred while trying to send the following message '
@@ -346,7 +396,7 @@ class LetschatRoom(Room):
         """
         """
         log.info('LetschatRoom.join: {}, {}'.format(username, password))
-        self._bot.client.emit('rooms:join', self._name, self._bot.client.get_namespace().on_rooms_join_response)
+        self._bot.client.emit_rooms_join(self._name)
 
     def leave(self, reason=None):
         """
