@@ -165,14 +165,14 @@ class LetschatClient():
             }
             self.emit('rooms:archive', options)
 
-    def emit_rooms_update(self, roomid, name=None, description=None):
+    def emit_rooms_update(self, roomid, name=None, desc=None):
         room = [room for room in self.server._rooms if room.get('id') == roomid]
         if room is not None:
             options = dict(room[0])
             if name is not None:
                 options['name'] = name
             if description is not None:
-                options['description'] = description
+                options['description'] = desc
             self.emit('rooms:update', options)
 
     def emit_rooms_users(self, roomid):
@@ -306,7 +306,7 @@ class LetschatRoomOccupant(RoomOccupant, LetschatPerson):
         return self._room
 
     def __unicode__(self):
-        return '#{}/{}'.format(self._room.name, self.username)
+        return '#{}/{}'.format(self._room.slug, self.username)
 
     def __str__(self):
         return self.__unicode__()
@@ -448,8 +448,8 @@ class LetschatBackend(ErrBot):
         if text.startswith('@') and '#' not in text:
             return LetschatPerson(self.client, text.split('@')[1])
         elif '#' in text:
-            username, roomname = text.split('#')
-            roomid = self.client.roomname_to_roomid(roomname)
+            username, roomslug = text.split('#')
+            roomid = self.roomslug_to_roomid(roomslug)
             return LetschatRoomOccupant(self.client, username.split('@')[1], roomid, bot=self)
 
         raise RuntimeError('Unrecognized identifier: {}'.format(text))
@@ -477,23 +477,23 @@ class LetschatBackend(ErrBot):
             self.disconnect_callback()
             self.shutdown()
 
-    def roomid_to_roomname(self, id_):
+    def roomid_to_roomslug(self, id_):
         """
-        Convert a lets-chat room ID to its room name
+        Convert a lets-chat room ID to its room slug
         """
         room = [room for room in self.client.server.rooms if room.get('id') == id_]
         if not room:
             raise RoomDoesNotExistError('No room with ID {} exists'.format(id_))
         return room[0].get('slug')
 
-    def roomname_to_roomid(self, name):
+    def roomslug_to_roomid(self, slug):
         """
-        Convert a lets-chat room name to its room ID
+        Convert a lets-chat room slug to its room ID
         """
-        name = name.lstrip('#')
-        room = [room for room in self.client.server.rooms if room.get('slug') == name]
+        slug = slug.lstrip('#')
+        room = [room for room in self.client.server.rooms if room.get('slug') == slug]
         if not room:
-            raise RoomDoesNotExistError('No room named {} exists'.format(name))
+            raise RoomDoesNotExistError('No room named {} exists'.format(slug))
         return room[0].get('id')
 
     def rooms_info(self, joined_only=False):
@@ -546,11 +546,11 @@ class LetschatBackend(ErrBot):
 
     def query_room(self, room):
         """
-        Room can either be a name or a roomid
+        Room can either be a slug or a roomid
         """
         m = re.match(r'^#(?P<slug>\w+)$', room)
         if m is not None:
-            return LetschatRoom(name=m.groupdict()['slug'], bot=self)
+            return LetschatRoom(slug=m.groupdict()['slug'], bot=self)
 
         return LetschatRoom(roomid=room, bot=self)
 
@@ -572,30 +572,30 @@ class LetschatBackend(ErrBot):
 
 class LetschatRoom(Room):
 
-    def __init__(self, name=None, roomid=None, bot=None):
-        if roomid is not None and name is not None:
-            raise ValueError('roomid and name are mutually exclusive')
+    def __init__(self, slug=None, roomid=None, bot=None):
+        if roomid is not None and slug is not None:
+            raise ValueError('roomid and slug are mutually exclusive')
 
-        if name is not None:
-            if name.startswith('#'):
-                self._name = name[1:]
+        if slug is not None:
+            if slug.startswith('#'):
+                self._slug = slug[1:]
             else:
-                self._name = name
+                self._slug = slug
         else:
-            self._name = bot.roomid_to_roomname(roomid)
+            self._slug = bot.roomid_to_roomslug(roomid)
 
         self._id = None
         self._bot = bot
 
     def __str__(self):
-        return '#{}'.format(self.name)
+        return '#{}'.format(self.slug)
 
     @property
     def _room(self):
         """
         The room object exposed by LetschatClient
         """
-        room = [room_ for room_ in self._bot.client.server.rooms if room_.get('slug') == self.name]
+        room = [room_ for room_ in self._bot.client.server.rooms if room_.get('slug') == self.slug]
         if not room:
             raise RoomDoesNotExistError(
                     "{} does not exist (or is a private room you don't have access to)".format(str(self))
@@ -620,7 +620,7 @@ class LetschatRoom(Room):
     def create(self, private=False):
         try:
             log.info('Creating room {}'.format(str(self)))
-            self._bot.client.emit_rooms_create(self.name)
+            self._bot.client.emit_rooms_create(self.slug)
         except Exception as e:
             raise RoomError(e)
 
@@ -642,15 +642,15 @@ class LetschatRoom(Room):
         return self._id
 
     @property
-    def name(self):
+    def slug(self):
         """
-        Return the name of this room
+        Return the slug of this room
         """
-        return self._name
+        return self._slug
 
     @property
     def exists(self):
-        return len([room for room in self._bot.client.server.rooms if room_.get('slug') == self.name]) > 0
+        return len([room for room in self._bot.client.server.rooms if room_.get('slug') == self.slug]) > 0
 
     @property
     def joined(self):
@@ -660,11 +660,11 @@ class LetschatRoom(Room):
 
     @property
     def topic(self):
-        desc = self._room.get('name', '')
-        if desc == '':
+        name = self._room.get('name', '')
+        if name == '':
             return None
         else:
-            return desc
+            return name
 
     @topic.setter
     def topic(self, topic):
