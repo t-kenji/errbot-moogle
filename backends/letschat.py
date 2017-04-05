@@ -92,14 +92,14 @@ class LetschatClient():
 
         def on_rooms_archive_message(self, *args):
             room = [room for room in self._rooms if room.get('id') == args[0].get('id')]
-            if room is not None:
+            if room:
                 room = room[0]
                 log.info('Archived {}'.format(room.get('name')))
                 self._rooms.remove(room)
 
         def on_rooms_update_message(self, *args):
             room = [room for room in self._rooms if room.get('id') == args[0].get('id')]
-            if room is not None:
+            if room:
                 room = room[0]
                 log.info('Updated {}'.format(room.get('name')))
                 room['name'] = args[0].get('name')
@@ -159,7 +159,7 @@ class LetschatClient():
 
     def emit_rooms_archive(self, roomid):
         room = [room for room in self.server._rooms if room.get('id') == roomid]
-        if room is not None:
+        if room:
             options = {
                 'id': roomid,
             }
@@ -167,7 +167,7 @@ class LetschatClient():
 
     def emit_rooms_update(self, roomid, name=None, desc=None):
         room = [room for room in self.server._rooms if room.get('id') == roomid]
-        if room is not None:
+        if room:
             options = dict(room[0])
             if name is not None:
                 options['name'] = name
