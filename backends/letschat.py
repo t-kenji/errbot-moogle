@@ -410,7 +410,7 @@ class LetschatBackend(ErrBot):
 
         return text, mentioned
 
-    def build_reply(self, mess, text=None, private=False):
+    def build_reply(self, mess, text=None, private=False, threaded=False):
         """
         Build a reply message object
         """
